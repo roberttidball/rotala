@@ -68,6 +68,21 @@ impl FXMacroDataClient {
         self.url(&format!("/central_bankers/{}", norm(currency)))
     }
 
+    /// Add `limit` and `offset` to a list endpoint URL. List endpoints return
+    /// 20 rows by default and at most 100 per request, newest first; keep
+    /// requesting while the response's `pagination.has_more` is true, using
+    /// `pagination.next_offset` as the next offset.
+    pub fn page(url: &str, limit: u32, offset: u32) -> String {
+        let separator = if url.contains('?') { '&' } else { '?' };
+        format!(
+            "{}{}limit={}&offset={}",
+            url,
+            separator,
+            limit.clamp(1, 100),
+            offset
+        )
+    }
+
     /// Header to send with each request, or `None` when no key is set.
     pub fn api_key_header(&self) -> Option<(&'static str, &str)> {
         self.api_key.as_deref().map(|key| (API_KEY_HEADER, key))
@@ -89,4 +104,22 @@ impl std::fmt::Debug for FXMacroDataClient {
 
 fn norm(value: &str) -> String {
     value.trim().to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FXMacroDataClient;
+
+    #[test]
+    fn page_adds_limit_and_offset() {
+        let client = FXMacroDataClient::new("");
+        assert_eq!(
+            FXMacroDataClient::page(&client.forex("EUR", "USD"), 100, 200),
+            "https://api.fxmacrodata.com/v1/forex/eur/usd?limit=100&offset=200"
+        );
+        assert_eq!(
+            FXMacroDataClient::page("https://example.com/x?start_date=2024-01-01", 500, 0),
+            "https://example.com/x?start_date=2024-01-01&limit=100&offset=0"
+        );
+    }
 }
