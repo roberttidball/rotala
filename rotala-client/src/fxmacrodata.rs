@@ -64,9 +64,6 @@ impl FXMacroDataClient {
     pub fn press_releases(&self, currency: &str) -> String {
         self.url(&format!("/press-releases/{}", norm(currency)))
     }
-    pub fn central_bankers(&self, currency: &str) -> String {
-        self.url(&format!("/central_bankers/{}", norm(currency)))
-    }
 
     /// Add `limit` and `offset` to a list endpoint URL. List endpoints return
     /// 20 rows by default and at most 100 per request, newest first; keep
