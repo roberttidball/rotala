@@ -23,13 +23,13 @@ impl FXMacroDataClient {
         self.url(&format!("/data_catalogue/{}", norm(currency)))
     }
     pub fn announcements(&self, currency: &str, indicator: &str) -> String {
-        self.url(&format!("/announcements/{}/{}", norm(currency), indicator))
+        self.url(&format!("/announcements/{}/{}", norm(currency), encode(indicator)))
     }
     pub fn calendar(&self, currency: &str) -> String {
         self.url(&format!("/calendar/{}", norm(currency)))
     }
     pub fn predictions(&self, currency: &str, indicator: &str) -> String {
-        self.url(&format!("/predictions/{}/{}", norm(currency), indicator))
+        self.url(&format!("/predictions/{}/{}", norm(currency), encode(indicator)))
     }
     pub fn forex(&self, base: &str, quote: &str) -> String {
         self.url(&format!("/forex/{}/{}", norm(base), norm(quote)))
@@ -41,7 +41,7 @@ impl FXMacroDataClient {
         self.url("/commodities/latest")
     }
     pub fn commodity(&self, indicator: &str) -> String {
-        self.url(&format!("/commodities/{}", indicator))
+        self.url(&format!("/commodities/{}", encode(indicator)))
     }
     pub fn curves(&self, currency: &str) -> String {
         self.url(&format!("/curves/{}", norm(currency)))
@@ -100,7 +100,20 @@ impl std::fmt::Debug for FXMacroDataClient {
 }
 
 fn norm(value: &str) -> String {
-    value.trim().to_ascii_lowercase()
+    encode(&value.trim().to_ascii_lowercase())
+}
+
+fn encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -118,5 +131,71 @@ mod tests {
             FXMacroDataClient::page("https://example.com/x?start_date=2024-01-01", 500, 0),
             "https://example.com/x?start_date=2024-01-01&limit=100&offset=0"
         );
+    }
+}
+
+#[cfg(test)]
+mod url_component_tests {
+    use super::FXMacroDataClient;
+    use reqwest::Url;
+
+    fn assert_indicator(url: String, endpoint: &str) {
+        let parsed = Url::parse(&url).unwrap();
+        assert_eq!(parsed.query(), None);
+        assert_eq!(parsed.fragment(), None);
+        assert_eq!(
+            parsed.path(),
+            format!("/v1/{endpoint}/inflation%2Fother%3Flimit%3D1%23detail")
+        );
+    }
+
+    #[test]
+    fn announcement_indicator_does_not_change_route() {
+        let client = FXMacroDataClient::new("");
+        assert_indicator(client.announcements("USD", "inflation/other?limit=1#detail"), "announcements/usd");
+    }
+
+    #[test]
+    fn prediction_indicator_does_not_change_route() {
+        let client = FXMacroDataClient::new("");
+        assert_indicator(client.predictions("USD", "inflation/other?limit=1#detail"), "predictions/usd");
+    }
+
+    #[test]
+    fn commodity_indicator_does_not_change_route() {
+        let client = FXMacroDataClient::new("");
+        assert_indicator(client.commodity("inflation/other?limit=1#detail"), "commodities");
+    }
+
+    #[test]
+    fn currency_does_not_change_route() {
+        let url = FXMacroDataClient::new("").calendar("US/D?x=1#frag");
+        let parsed = Url::parse(&url).unwrap();
+        assert_eq!(parsed.query(), None);
+        assert_eq!(parsed.fragment(), None);
+        assert_eq!(parsed.path(), "/v1/calendar/us%2Fd%3Fx%3D1%23frag");
+    }
+
+    #[test]
+    fn preserves_canonical_series_and_currency_normalization() {
+        let client = FXMacroDataClient::new("");
+        assert_eq!(client.announcements(" USD ", "non_farm_payrolls"), "https://api.fxmacrodata.com/v1/announcements/usd/non_farm_payrolls");
+        assert_eq!(client.forex(" EUR ", "USD"), "https://api.fxmacrodata.com/v1/forex/eur/usd");
+    }
+
+    #[test]
+    fn preserves_headers_and_redacted_debug() {
+        let client = FXMacroDataClient::new("sample-test-key");
+        assert_eq!(client.api_key_header(), Some(("X-API-Key", "sample-test-key")));
+        assert!(!format!("{client:?}").contains("sample-test-key"));
+        assert_eq!(FXMacroDataClient::new("").api_key_header(), None);
+    }
+
+    #[test]
+    fn preserves_static_endpoints() {
+        let client = FXMacroDataClient::new("");
+        assert_eq!(client.commodities_latest(), "https://api.fxmacrodata.com/v1/commodities/latest");
+        assert_eq!(client.market_sessions(), "https://api.fxmacrodata.com/v1/market_sessions");
+        assert_eq!(client.risk_sentiment(), "https://api.fxmacrodata.com/v1/risk_sentiment");
     }
 }
