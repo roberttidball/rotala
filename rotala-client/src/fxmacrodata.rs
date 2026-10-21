@@ -70,6 +70,22 @@ impl FXMacroDataClient {
     /// requesting while the response's `pagination.has_more` is true, using
     /// `pagination.next_offset` as the next offset.
     pub fn page(url: &str, limit: u32, offset: u32) -> String {
+        if let Ok(mut parsed) = reqwest::Url::parse(url) {
+            let filters: Vec<(String, String)> = parsed
+                .query_pairs()
+                .filter(|(name, _)| !matches!(name.as_ref(), "page" | "limit" | "offset"))
+                .map(|(name, value)| (name.into_owned(), value.into_owned()))
+                .collect();
+            {
+                let mut query = parsed.query_pairs_mut();
+                query.clear();
+                query.extend_pairs(filters);
+                query.append_pair("limit", &limit.clamp(1, 100).to_string());
+                query.append_pair("offset", &offset.to_string());
+            }
+            return parsed.to_string();
+        }
+        // Preserve the existing behavior for inputs that are not absolute URLs.
         let separator = if url.contains('?') { '&' } else { '?' };
         format!(
             "{}{}limit={}&offset={}",
@@ -197,5 +213,26 @@ mod url_component_tests {
         assert_eq!(client.commodities_latest(), "https://api.fxmacrodata.com/v1/commodities/latest");
         assert_eq!(client.market_sessions(), "https://api.fxmacrodata.com/v1/market_sessions");
         assert_eq!(client.risk_sentiment(), "https://api.fxmacrodata.com/v1/risk_sentiment");
+    }
+}
+
+#[cfg(test)]
+mod pagination_query_tests {
+    use super::FXMacroDataClient;
+
+    #[test]
+    fn offset_page_replaces_page_limit_and_offset_selectors() {
+        assert_eq!(
+            FXMacroDataClient::page("https://example.com/calendar/usd?page=3&limit=20&indicator=inflation&offset=7&page=4", 100, 200),
+            "https://example.com/calendar/usd?indicator=inflation&limit=100&offset=200"
+        );
+    }
+
+    #[test]
+    fn offset_page_keeps_fragment_after_query() {
+        assert_eq!(
+            FXMacroDataClient::page("https://example.com/calendar/usd?indicator=inflation#view", 50, 100),
+            "https://example.com/calendar/usd?indicator=inflation&limit=50&offset=100#view"
+        );
     }
 }
